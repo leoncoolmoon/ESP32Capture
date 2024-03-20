@@ -41,6 +41,7 @@ const char* password = "0425271998";
 
 void startCameraServer();
 void setupLedFlash(int pin);
+void loopServer();
 
 void setup() {
   Serial.begin(115200);
@@ -155,4 +156,5 @@ void setup() {
 
 void loop() {
 loopOTA();
+loopServer();
 }

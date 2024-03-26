@@ -21,6 +21,10 @@
 #include "camera_index.h"
 #include <WebServer.h>
 #include <Update.h>
+#include "FS.h"
+#include "SPIFFS.h"
+
+#define FORMAT_SPIFFS_IF_FAILED true
 
 // Enable LED FLASH setting
 #define CONFIG_LED_ILLUMINATOR_ENABLED 1
@@ -28,7 +32,7 @@
 // LED FLASH setup
 #if CONFIG_LED_ILLUMINATOR_ENABLED
 
-#define LED_LEDC_CHANNEL 2 //Using different ledc channel/timer than camera
+#define LED_LEDC_CHANNEL 2 // Using different ledc channel/timer than camera
 #define CONFIG_LED_MAX_INTENSITY 255
 
 int led_duty = 0;
@@ -36,8 +40,8 @@ bool isStreaming = false;
 
 #endif
 
-WebServer serverCamera(80);   // 相机服务器监听80端口
-WebServer serverStream(81);   // 流服务器监听81端口
+WebServer serverCamera(80); // 相机服务器监听80端口
+WebServer serverStream(81); // 流服务器监听81端口
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 static const char *_STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
@@ -83,11 +87,12 @@ static void bmp_handler()
   char ts[32];
   snprintf(ts, 32, "%ld.%06ld", fb->timestamp.tv_sec, fb->timestamp.tv_usec);
   serverCamera.sendHeader("X-Timestamp", (const char *)ts);
-  uint8_t * buf = NULL;
+  uint8_t *buf = NULL;
   size_t buf_len = 0;
   bool converted = frame2bmp(fb, &buf, &buf_len);
   esp_camera_fb_return(fb);
-  if (!converted) {
+  if (!converted)
+  {
     Serial.println("BMP Conversion failed");
     serverCamera.send(500, "text/plain", "BMP Conversion failed");
     return;
@@ -102,7 +107,8 @@ static void bmp_handler()
 }
 static void xclk_handler()
 {
-  if (!serverCamera.hasArg("xclk")) {
+  if (!serverCamera.hasArg("xclk"))
+  {
     serverCamera.send(404, "text/plain", "Not Found");
     return;
   }
@@ -110,7 +116,8 @@ static void xclk_handler()
   Serial.printf("Set XCLK: %d MHz\n", xclk);
   sensor_t *s = esp_camera_sensor_get();
   int res = s->set_xclk(s, LEDC_TIMER_0, xclk);
-  if (res) {
+  if (res)
+  {
     serverCamera.send(500, "text/plain", "Internal Server Error");
     return;
   }
@@ -120,7 +127,8 @@ static void xclk_handler()
 
 static void reg_handler()
 {
-  if (!serverCamera.hasArg("reg") || !serverCamera.hasArg("mask") || !serverCamera.hasArg("val")) {
+  if (!serverCamera.hasArg("reg") || !serverCamera.hasArg("mask") || !serverCamera.hasArg("val"))
+  {
     serverCamera.send(404, "text/plain", "Not Found");
     return;
   }
@@ -132,7 +140,8 @@ static void reg_handler()
 
   sensor_t *s = esp_camera_sensor_get();
   int res = s->set_reg(s, reg, mask, val);
-  if (res) {
+  if (res)
+  {
     serverCamera.send(500, "text/plain", "Internal Server Error");
     return;
   }
@@ -143,7 +152,8 @@ static void reg_handler()
 
 static void greg_handler()
 {
-  if (!serverCamera.hasArg("reg") || !serverCamera.hasArg("mask")) {
+  if (!serverCamera.hasArg("reg") || !serverCamera.hasArg("mask"))
+  {
     serverCamera.send(404, "text/plain", "Not Found");
     return;
   }
@@ -153,7 +163,8 @@ static void greg_handler()
 
   sensor_t *s = esp_camera_sensor_get();
   int res = s->get_reg(s, reg, mask);
-  if (res < 0) {
+  if (res < 0)
+  {
     serverCamera.send(500, "text/plain", "Internal Server Error");
     return;
   }
@@ -162,9 +173,10 @@ static void greg_handler()
   serverCamera.send(200, "text/plain", String(res));
 }
 
-static int parse_get_var(const String& arg, int def)
+static int parse_get_var(const String &arg, int def)
 {
-  if (!serverCamera.hasArg(arg)) {
+  if (!serverCamera.hasArg(arg))
+  {
     return def;
   }
   return serverCamera.arg(arg).toInt();
@@ -183,7 +195,8 @@ static void pll_handler()
   Serial.printf("Set Pll: bypass: %d, mul: %d, sys: %d, root: %d, pre: %d, seld5: %d, pclken: %d, pclk: %d\n", bypass, mul, sys, root, pre, seld5, pclken, pclk);
   sensor_t *s = esp_camera_sensor_get();
   int res = s->set_pll(s, bypass, mul, sys, root, pre, seld5, pclken, pclk);
-  if (res) {
+  if (res)
+  {
     serverCamera.send(500, "text/plain", "Internal Server Error");
     return;
   }
@@ -207,42 +220,53 @@ void win_handler()
   Serial.printf("Set Window: Start: %d %d, End: %d %d, Offset: %d %d, Total: %d %d, Output: %d %d, Scale: %u, Binning: %u\n", startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
   sensor_t *s = esp_camera_sensor_get();
   int res = s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
-  if (res) {
+  if (res)
+  {
     serverCamera.send(500, "text/plain", "Internal Server Error");
     return;
   }
   serverCamera.sendHeader("Access-Control-Allow-Origin", "*");
   serverCamera.send(200, "text/plain", "");
 }
-static int print_reg(char * p, sensor_t * s, uint16_t reg, uint32_t mask) {
+static int print_reg(char *p, sensor_t *s, uint16_t reg, uint32_t mask)
+{
   return sprintf(p, "\"0x%x\":%u,", reg, s->get_reg(s, reg, mask));
 }
-void status_handler()
+
+
+void loadFromCamera( char *json_response)
 {
-  static char json_response[1024];
+  //static char json_response[1024];
   sensor_t *s = esp_camera_sensor_get();
   char *p = json_response;
   *p++ = '{';
-  if (s->id.PID == OV5640_PID || s->id.PID == OV3660_PID) {
-    for (int reg = 0x3400; reg < 0x3406; reg += 2) {
-      p += print_reg(p, s, reg, 0xFFF); //12 bit
+  if (s->id.PID == OV5640_PID || s->id.PID == OV3660_PID)
+  {
+    for (int reg = 0x3400; reg < 0x3406; reg += 2)
+    {
+      p += print_reg(p, s, reg, 0xFFF); // 12 bit
     }
     p += print_reg(p, s, 0x3406, 0xFF);
-    p += print_reg(p, s, 0x3500, 0xFFFF0); //16 bit
+    p += print_reg(p, s, 0x3500, 0xFFFF0); // 16 bit
     p += print_reg(p, s, 0x3503, 0xFF);
-    p += print_reg(p, s, 0x350a, 0x3FF); //10 bit
-    p += print_reg(p, s, 0x350c, 0xFFFF); //16 bit
-    for (int reg = 0x5480; reg <= 0x5490; reg++) {
+    p += print_reg(p, s, 0x350a, 0x3FF);  // 10 bit
+    p += print_reg(p, s, 0x350c, 0xFFFF); // 16 bit
+    for (int reg = 0x5480; reg <= 0x5490; reg++)
+    {
       p += print_reg(p, s, reg, 0xFF);
     }
-    for (int reg = 0x5380; reg <= 0x538b; reg++) {
+    for (int reg = 0x5380; reg <= 0x538b; reg++)
+    {
       p += print_reg(p, s, reg, 0xFF);
     }
-    for (int reg = 0x5580; reg < 0x558a; reg++) {
+    for (int reg = 0x5580; reg < 0x558a; reg++)
+    {
       p += print_reg(p, s, reg, 0xFF);
     }
-    p += print_reg(p, s, 0x558a, 0x1FF); //9 bit
-  } else if (s->id.PID == OV2640_PID) {
+    p += print_reg(p, s, 0x558a, 0x1FF); // 9 bit
+  }
+  else if (s->id.PID == OV2640_PID)
+  {
     p += print_reg(p, s, 0xd3, 0xFF);
     p += print_reg(p, s, 0x111, 0xFF);
     p += print_reg(p, s, 0x132, 0xFF);
@@ -281,20 +305,18 @@ void status_handler()
   *p++ = '}';
   *p++ = 0;
 
-  serverCamera.sendHeader("Access-Control-Allow-Origin", "*");
-  serverCamera.send(200, "application/json", json_response);
+  //return json_response;
 }
-
-void cmd_handler()
+int setupCam(String param,sensor_t *s)
 {
-  String variable = serverCamera.arg("var");
-  String value = serverCamera.arg("val");
-  int val = value.toInt();
-  Serial.printf("%s = %d\n", variable.c_str(), val);
-  sensor_t *s = esp_camera_sensor_get();
+  String variable = param.substring(0, param.indexOf(":"));
+  param.replace(variable + ": ", "");
+  int val = param.toInt();
   int res = 0;
-  if (variable.equals("framesize")) {
-    if (s->pixformat == PIXFORMAT_JPEG) {
+  if (variable.equals("framesize"))
+  {
+    if (s->pixformat == PIXFORMAT_JPEG)
+    {
       res = s->set_framesize(s, (framesize_t)val);
     }
   }
@@ -344,30 +366,88 @@ void cmd_handler()
     res = s->set_wb_mode(s, val);
   else if (variable.equals("ae_level"))
     res = s->set_ae_level(s, val);
-  else {
+  else
+  {
     Serial.printf("Unknown command: %s", variable);
     res = -1;
   }
-  if (res < 0) {
+  
+ return res;
+}
+int setupCams(String params){
+params.replace("{", "");
+params.replace("}", "");
+//line by line trim and sent to setupCam
+int start = 0;
+int end = 0;
+int res = 0;
+sensor_t *s = esp_camera_sensor_get();
+while (end < params.length())
+{
+  end = params.indexOf("\n", start);
+  String line = params.substring(start, end);
+  line.trim();
+  if (line.length() > 0)
+  {
+    if (setupCam(line,s) < 0)
+    {
+      res = -1;
+    }
+  }
+  start = end + 1;
+
+}
+return res;
+}
+void status_handler()
+{//read SPIFFS
+  File file = SPIFFS.open("/params.json", "r");
+  if (!file)
+  {
+    Serial.println("There was an error opening the file for reading load params from camera");
+    static char json_response[1024];
+    loadFromCamera(json_response);
+    serverCamera.sendHeader("Access-Control-Allow-Origin", "*");
+    serverCamera.send(200, "application/json", json_response);
+    return;
+  }
+ 
+  String params = file.readString();
+  file.close();
+//setup camera based on the params
+  if (setupCams(params) < 0)
+  {
+    serverCamera.send(500, "application/json", "{\"params\":\"Internal Server Error\"}");
+    return;
+  }
+  serverCamera.sendHeader("Access-Control-Allow-Origin", "*");
+  serverCamera.send(200, "application/json", params);
+}
+void cmd_handler(){
+  String variable = serverCamera.arg("var");
+  String value = serverCamera.arg("val");
+  int val = value.toInt();
+  Serial.printf("%s = %d\n", variable.c_str(), val);
+  sensor_t *s = esp_camera_sensor_get();
+  if (setupCam(  variable + "\": " + value,s) < 0)
+  {
     serverCamera.send(500, "text/plain", "Internal Server Error");
     return;
   }
   serverCamera.sendHeader("Access-Control-Allow-Origin", "*");
   serverCamera.send(200, "text/plain", "");
 }
-
-
-size_t jpg_encode_stream(void * arg, size_t index, const void * data, size_t len) {
+size_t jpg_encode_stream(void *arg, size_t index, const void *data, size_t len)
+{
   jpg_chunking_t *j = (jpg_chunking_t *)arg;
-  if (!index) {
+  if (!index)
+  {
     j->len = 0;
   }
-  j->client.write((uint8_t*)data, len);
+  j->client.write((uint8_t *)data, len);
   j->len += len;
   return len;
 }
-
-
 static void capture_handler()
 {
   camera_fb_t *fb = NULL;
@@ -406,7 +486,7 @@ static void capture_handler()
     frame2jpg_cb(fb, 80, jpg_encode_stream, &jchunk);
   }
   esp_camera_fb_return(fb);
-  //Serial.printf("JPG: %uB ", (uint32_t)(fb_len) );
+  // Serial.printf("JPG: %uB ", (uint32_t)(fb_len) );
 }
 
 static void stream_handler()
@@ -418,33 +498,33 @@ static void stream_handler()
   size_t _jpg_buf_len = 0;
   uint8_t *_jpg_buf = NULL;
   char *part_buf[128];
-  
+
   static int64_t last_frame = 0;
-WiFiClient client = serverStream.client();
+  WiFiClient client = serverStream.client();
 
   if (!last_frame)
   {
     last_frame = esp_timer_get_time();
   }
   if (!client.connected())
-        {
-            Serial.println("Client disconnected-1");
-            res = ESP_FAIL;
-        }
-  //serverStream.sendHeader("Content-Type", _STREAM_CONTENT_TYPE);
+  {
+    Serial.println("Client disconnected-1");
+    res = ESP_FAIL;
+  }
+  // serverStream.sendHeader("Content-Type", _STREAM_CONTENT_TYPE);
   client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type:"+String(_STREAM_CONTENT_TYPE));
-    client.println("Access-Control-Allow-Origin: *");
-    client.println("X-Framerate: 60");
+  client.println("Content-Type:" + String(_STREAM_CONTENT_TYPE));
+  client.println("Access-Control-Allow-Origin: *");
+  client.println("X-Framerate: 60");
 
-//   serverStream.send(200); // 发送HTTP响应头
-//   serverStream.sendHeader("Access-Control-Allow-Origin", "*");
-//   serverStream.sendHeader("X-Framerate", "60");
-if (!client.connected())
-        {
-            Serial.println("Client disconnected0");
-            res = ESP_FAIL;
-        }
+  //   serverStream.send(200); // 发送HTTP响应头
+  //   serverStream.sendHeader("Access-Control-Allow-Origin", "*");
+  //   serverStream.sendHeader("X-Framerate", "60");
+  if (!client.connected())
+  {
+    Serial.println("Client disconnected0");
+    res = ESP_FAIL;
+  }
 #if CONFIG_LED_ILLUMINATOR_ENABLED
   isStreaming = true;
   enable_led(true);
@@ -482,44 +562,42 @@ if (!client.connected())
     }
     if (res == ESP_OK)
     {
-        if (!client.connected())
-        {
-            Serial.println("Client disconnected1");
-            res = ESP_FAIL;
-        }
-      //serverStream.sendContent(_STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
-        client.write(_STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
-
+      if (!client.connected())
+      {
+        Serial.println("Client disconnected1");
+        res = ESP_FAIL;
+      }
+      // serverStream.sendContent(_STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+      client.write(_STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
     }
-   if (res == ESP_OK)
-   {
-     size_t hlen = snprintf((char *)part_buf, 128, _STREAM_PART, _jpg_buf_len, _timestamp.tv_sec, _timestamp.tv_usec);
-     //serverCamera.sendContent((const char *)part_buf, hlen);
-        client.write((const uint8_t *)part_buf, hlen);
-
-   }
     if (res == ESP_OK)
     {
-        if (!client.connected())
-        {
-            Serial.println("Client disconnected2");
-            res = ESP_FAIL;
-        }
-       Serial.printf("sent buf %d\n",_jpg_buf_len);
-      //serverStream.sendContent((const char *)_jpg_buf, _jpg_buf_len);
-        client.write((const uint8_t *)_jpg_buf, _jpg_buf_len);
+      size_t hlen = snprintf((char *)part_buf, 128, _STREAM_PART, _jpg_buf_len, _timestamp.tv_sec, _timestamp.tv_usec);
+      // serverCamera.sendContent((const char *)part_buf, hlen);
+      client.write((const uint8_t *)part_buf, hlen);
+    }
+    if (res == ESP_OK)
+    {
+      if (!client.connected())
+      {
+        Serial.println("Client disconnected2");
+        res = ESP_FAIL;
+      }
+      Serial.printf("sent buf %d\n", _jpg_buf_len);
+      // serverStream.sendContent((const char *)_jpg_buf, _jpg_buf_len);
+      client.write((const uint8_t *)_jpg_buf, _jpg_buf_len);
       // check if the client has disconnected
-        if (!client.connected())
-        {
-            Serial.println("Client disconnected3");
-            res = ESP_FAIL;
-        }
-//      WiFiClient client = serverCamera.client();
-//      size_t sentBytes = client.write((const uint8_t *)_jpg_buf, _jpg_buf_len);
-//      Serial.printf("sent %d vs buf %d\n",sentBytes,_jpg_buf_len);
-//      if (sentBytes != _jpg_buf_len) {
-//        res = ESP_FAIL;
-//      }
+      if (!client.connected())
+      {
+        Serial.println("Client disconnected3");
+        res = ESP_FAIL;
+      }
+      //      WiFiClient client = serverCamera.client();
+      //      size_t sentBytes = client.write((const uint8_t *)_jpg_buf, _jpg_buf_len);
+      //      Serial.printf("sent %d vs buf %d\n",sentBytes,_jpg_buf_len);
+      //      if (sentBytes != _jpg_buf_len) {
+      //        res = ESP_FAIL;
+      //      }
     }
     if (fb)
     {
@@ -554,44 +632,86 @@ if (!client.connected())
 static void index_handler()
 {
   sensor_t *s = esp_camera_sensor_get();
-  if (s != NULL) {
+  if (s != NULL)
+  {
     serverCamera.sendHeader("Content-Encoding", "gzip");
     serverCamera.sendHeader("Content-Type", "text/html");
     serverCamera.send_P(200, "text/html", (const char *)INDEX_OV2640_HTML_GZ, sizeof(INDEX_OV2640_HTML_GZ));
-  } else {
+  }
+  else
+  {
     Serial.println("Camera sensor not found");
     serverCamera.send(500, "text/plain", "Camera sensor not found");
   }
 }
-void loopServer() {
+void loopServer()
+{
   serverCamera.handleClient();
   serverStream.handleClient();
 }
-void update_handler() {
-    serverCamera.sendHeader("Connection", "close");
-    serverCamera.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
-    ESP.restart();
-  }
-void upload_handler() {
-    HTTPUpload& upload = serverCamera.upload();
-    if (upload.status == UPLOAD_FILE_START) {
-      Serial.printf("Update: %s\n", upload.filename.c_str());
-      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { //start with max available size
-        Update.printError(Serial);
-      }
-    } else if (upload.status == UPLOAD_FILE_WRITE) {
-      /* flashing firmware to ESP*/
-      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-        Update.printError(Serial);
-      }
-    } else if (upload.status == UPLOAD_FILE_END) {
-      if (Update.end(true)) { //true to set the size to the current progress
-        Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
-      } else {
-        Update.printError(Serial);
-      }
+void update_handler()
+{
+  serverCamera.sendHeader("Connection", "close");
+  serverCamera.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+  ESP.restart();
+}
+void upload_handler()
+{
+  HTTPUpload &upload = serverCamera.upload();
+  if (upload.status == UPLOAD_FILE_START)
+  {
+    Serial.printf("Update: %s\n", upload.filename.c_str());
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN))
+    { // start with max available size
+      Update.printError(Serial);
     }
   }
+  else if (upload.status == UPLOAD_FILE_WRITE)
+  {
+    /* flashing firmware to ESP*/
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
+    {
+      Update.printError(Serial);
+    }
+  }
+  else if (upload.status == UPLOAD_FILE_END)
+  {
+    if (Update.end(true))
+    { // true to set the size to the current progress
+      Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+    }
+    else
+    {
+      Update.printError(Serial);
+    }
+  }
+}
+
+void premeter_save_handler()
+{
+  // 接收请求体
+  String params = serverCamera.arg("plain");
+  Serial.println(params);
+  // 除掉已有文件
+  if (SPIFFS.exists("/params.json"))
+  {
+    SPIFFS.remove("/params.json");
+  }
+  // 将字符串写入到文件
+
+  File file = SPIFFS.open("/params.json", "w");
+  if (!file)
+  {
+    Serial.println("There was an error opening the file for writing");
+    serverCamera.send(500, "application/json", "{\"params\":\"There was an error opening the file for writing\"}");
+    return;
+  }
+  file.print(params); // 将接收到的字符串直接写入文件
+  file.close();
+  // 发送响应
+  serverCamera.send(200, "application/json", "{\"params\":\"Parameters updated successfully\"}");
+}
+
 void startCameraServer()
 {
   // Route for root / web page
@@ -606,10 +726,17 @@ void startCameraServer()
   serverCamera.on("/pll", HTTP_GET, pll_handler);
   serverCamera.on("/resolution", HTTP_GET, win_handler);
   serverCamera.on("/update", HTTP_POST, update_handler, upload_handler);
+  serverCamera.on("/keep", HTTP_POST, premeter_save_handler);
   serverStream.on("/stream", HTTP_GET, stream_handler);
   Serial.println("Starting Web Server");
   serverCamera.begin();
   serverStream.begin();
+  // init spiffs
+  if (!SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED))
+  {
+    Serial.println("An Error has occurred while mounting SPIFFS");
+    return;
+  }
 }
 void setupLedFlash(int pin)
 {
